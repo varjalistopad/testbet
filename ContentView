@@ -1,0 +1,1861 @@
+//
+//  ContentView.swift
+//  TestBet
+//
+//  Created by Varja S on 08.02.2025.
+//
+
+import SwiftUI
+
+struct UserCredentials: Codable {
+    let login: String
+    let password: String
+}
+
+struct UserProfile: Codable {
+    let firstName: String
+    let lastName: String
+    let phone: String
+    let email: String
+    let city: String
+    let birthDate: Date
+    let credentials: UserCredentials
+}
+
+class UserData: ObservableObject {
+    @Published var profile: UserProfile? {
+        didSet {
+            if let profile = profile {
+                let encoder = JSONEncoder()
+                if let encoded = try? encoder.encode(profile) {
+                    UserDefaults.standard.set(encoded, forKey: "userProfile")
+                }
+            }
+        }
+    }
+    
+    @Published var isLoggedIn: Bool {
+        didSet {
+            UserDefaults.standard.set(isLoggedIn, forKey: "isLoggedIn")
+        }
+    }
+    
+    init() {
+        self.isLoggedIn = UserDefaults.standard.bool(forKey: "isLoggedIn")
+        
+        // Создаем тестовый профиль, если профиль еще не существует
+        if UserDefaults.standard.data(forKey: "userProfile") == nil {
+            let testCredentials = UserCredentials(login: "test", password: "test")
+            let testProfile = UserProfile(
+                firstName: "Test",
+                lastName: "User",
+                phone: "+7 999 999 99 99",
+                email: "test@example.com",
+                city: "Cyprus",
+                birthDate: Date(),
+                credentials: testCredentials
+            )
+            self.profile = testProfile
+            
+            let encoder = JSONEncoder()
+            if let encoded = try? encoder.encode(testProfile) {
+                UserDefaults.standard.set(encoded, forKey: "userProfile")
+            }
+        } else {
+            // Загружаем существующий профиль и обновляем город
+            if let savedProfile = UserDefaults.standard.data(forKey: "userProfile"),
+               let decodedProfile = try? JSONDecoder().decode(UserProfile.self, from: savedProfile) {
+                let updatedProfile = UserProfile(
+                    firstName: decodedProfile.firstName,
+                    lastName: decodedProfile.lastName,
+                    phone: decodedProfile.phone,
+                    email: decodedProfile.email,
+                    city: "Cyprus",
+                    birthDate: decodedProfile.birthDate,
+                    credentials: decodedProfile.credentials
+                )
+                self.profile = updatedProfile
+                
+                let encoder = JSONEncoder()
+                if let encoded = try? encoder.encode(updatedProfile) {
+                    UserDefaults.standard.set(encoded, forKey: "userProfile")
+                }
+            }
+        }
+    }
+    
+    func validateCredentials(login: String, password: String) -> Bool {
+        guard let profile = profile else { return false }
+        return profile.credentials.login == login && profile.credentials.password == password
+    }
+}
+
+struct RegistrationView: View {
+    @State private var firstName = ""
+    @State private var lastName = ""
+    @State private var phone = ""
+    @State private var email = ""
+    @State private var city = ""
+    @State private var birthDate = Date()
+    @State private var isRegistered = false
+    @State private var showingCredentials = false
+    @State private var generatedCredentials: UserCredentials?
+    @StateObject private var userData = UserData()
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text("Регистрация")
+                        .font(.largeTitle)
+                        .foregroundColor(.white)
+                        .padding(.top, 30)
+                    
+                    VStack(spacing: 15) {
+                        TextField("Имя", text: $firstName)
+                            .textFieldStyle(CustomTextFieldStyle())
+                        
+                        TextField("Фамилия", text: $lastName)
+                            .textFieldStyle(CustomTextFieldStyle())
+                        
+                        TextField("Телефон", text: $phone)
+                            .textFieldStyle(CustomTextFieldStyle())
+                            .keyboardType(.phonePad)
+                        
+                        TextField("Email", text: $email)
+                            .textFieldStyle(CustomTextFieldStyle())
+                            .keyboardType(.emailAddress)
+                            .autocapitalization(.none)
+                        
+                        TextField("Город", text: $city)
+                            .textFieldStyle(CustomTextFieldStyle())
+                        
+                        DatePicker("Дата рождения", selection: $birthDate, 
+                                 displayedComponents: .date)
+                            .datePickerStyle(.compact)
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 15)
+                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                            )
+                    }
+                    .padding(.horizontal)
+                    
+                    Button(action: {
+                        if isFormValid() {
+                            generateCredentials()
+                            showingCredentials = true
+                        }
+                    }) {
+                        Text("Зарегистрироваться")
+                            .font(.title3)
+                            .bold()
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(Color.blue.opacity(0.8))
+                            )
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .alert("Ваши учетные данные", isPresented: $showingCredentials) {
+            Button("Продолжить") {
+                if let credentials = generatedCredentials {
+                    saveUserProfile(credentials: credentials)
+                    isRegistered = true
+                }
+            }
+        } message: {
+            if let credentials = generatedCredentials {
+                Text("Логин: \(credentials.login)\nПароль: \(credentials.password)\n\nПожалуйста, сохраните эти данные!")
+            }
+        }
+        .fullScreenCover(isPresented: $isRegistered) {
+            TabView(selection: .constant(2)) {
+                ProfileView()
+                    .environmentObject(userData)
+                    .tabItem {
+                        FooterButton(icon: "person.fill", title: "Профиль", isSelected: false)
+                    }
+                    .tag(0)
+                
+                CategoriesView()
+                    .tabItem {
+                        FooterButton(icon: "line.3.horizontal", title: "Категории", isSelected: false)
+                    }
+                    .tag(1)
+                
+                MainGameView()
+                    .tabItem {
+                        FooterButton(icon: "house.fill", title: "Главная", isSelected: true)
+                    }
+                    .tag(2)
+                
+                BetSlipView()
+                    .tabItem {
+                        FooterButton(icon: "ticket.fill", title: "Купон", isSelected: false)
+                    }
+                    .tag(3)
+                
+                SettingsView()
+                    .tabItem {
+                        FooterButton(icon: "gearshape.fill", title: "Настройки", isSelected: false)
+                    }
+                    .tag(4)
+            }
+            .accentColor(.blue)
+        }
+    }
+    
+    private func isFormValid() -> Bool {
+        return !firstName.isEmpty && !lastName.isEmpty && !phone.isEmpty && 
+               !email.isEmpty && !city.isEmpty
+    }
+    
+    private func generateCredentials() -> Void {
+        let login = "\(firstName.lowercased()).\(lastName.lowercased())"
+        let password = String((0..<8).map { _ in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".randomElement()! })
+        generatedCredentials = UserCredentials(login: login, password: password)
+    }
+    
+    private func saveUserProfile(credentials: UserCredentials) {
+        let profile = UserProfile(
+            firstName: firstName,
+            lastName: lastName,
+            phone: phone,
+            email: email,
+            city: city,
+            birthDate: birthDate,
+            credentials: credentials
+        )
+        userData.profile = profile
+    }
+}
+
+struct CustomTextFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 15)
+                    .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+            )
+            .foregroundColor(.white)
+    }
+}
+
+struct ImageSlider: View {
+    @State private var currentIndex = 0
+    private let imageUrls = [
+        "https://i.ibb.co/JFkwZPFt/DALL-E-2025-02-08-21-17-27-A-rectangular-sports-betting-banner-The-image-features-a-high-energy-spor.webp",
+        "https://i.ibb.co/nsN7Dp6Y/DALL-E-2025-02-08-21-20-34-A-wide-casino-banner-with-a-luxurious-casino-theme-The-image-features-a-r.webp",
+        "https://i.ibb.co/bRXLx1f6/DALL-E-2025-02-08-21-21-13-A-wide-esports-banner-with-a-high-tech-and-competitive-gaming-theme-The-i.webp"
+    ]
+    
+    var body: some View {
+        TabView(selection: $currentIndex) {
+            ForEach(0..<imageUrls.count, id: \.self) { index in
+                AsyncImage(url: URL(string: imageUrls[index])) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .clipped()
+                    case .failure(_):
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .foregroundColor(.white)
+                            )
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            }
+        }
+        .tabViewStyle(PageTabViewStyle())
+        .frame(height: 200)
+    }
+}
+
+struct SportCategory: Identifiable {
+    let id = UUID()
+    let name: String
+    let icon: String
+}
+
+struct ExpandableCategory: Identifiable {
+    let id = UUID()
+    let title: String
+    var isExpanded: Bool
+    let sports: [SportCategory]
+}
+
+struct CategoriesView: View {
+    @State private var categories: [ExpandableCategory] = [
+        ExpandableCategory(
+            title: "Игровые виды спорта",
+            isExpanded: false,
+            sports: [
+                SportCategory(name: "Футбол", icon: "⚽️"),
+                SportCategory(name: "Баскетбол", icon: "🏀"),
+                SportCategory(name: "Волейбол", icon: "🏐"),
+                SportCategory(name: "Хоккей", icon: "🏒"),
+                SportCategory(name: "Теннис", icon: "🎾"),
+                SportCategory(name: "Гандбол", icon: "🤾")
+            ]
+        ),
+        ExpandableCategory(
+            title: "Единоборства",
+            isExpanded: false,
+            sports: [
+                SportCategory(name: "Бокс", icon: "🥊"),
+                SportCategory(name: "Борьба", icon: "🤼"),
+                SportCategory(name: "Дзюдо", icon: "🥋"),
+                SportCategory(name: "Карате", icon: "🥋"),
+                SportCategory(name: "Тхэквондо", icon: "🥋"),
+                SportCategory(name: "Самбо", icon: "🤼"),
+                SportCategory(name: "MMA", icon: "🥊")
+            ]
+        ),
+        ExpandableCategory(
+            title: "Силовые виды спорта",
+            isExpanded: false,
+            sports: [
+                SportCategory(name: "Тяжелая атлетика", icon: "🏋️"),
+                SportCategory(name: "Пауэрлифтинг", icon: "🏋️‍♂️"),
+                SportCategory(name: "Бодибилдинг", icon: "💪"),
+                SportCategory(name: "Кроссфит", icon: "🏋️‍♀️")
+            ]
+        ),
+        ExpandableCategory(
+            title: "Легкая атлетика",
+            isExpanded: false,
+            sports: [
+                SportCategory(name: "Бег", icon: "🏃"),
+                SportCategory(name: "Прыжки", icon: "🦘"),
+                SportCategory(name: "Метания", icon: "🎯"),
+                SportCategory(name: "Ходьба", icon: "🚶")
+            ]
+        ),
+        ExpandableCategory(
+            title: "Крипто-казино",
+            isExpanded: false,
+            sports: []
+        ),
+        ExpandableCategory(
+            title: "Live-казино",
+            isExpanded: false,
+            sports: []
+        ),
+        ExpandableCategory(
+            title: "Тапалки",
+            isExpanded: false,
+            sports: [
+                SportCategory(name: "Мячик судьбы", icon: "🏀")
+            ]
+        )
+    ]
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color(red: 0.1, green: 0.1, blue: 0.2)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 15) {
+                        ForEach($categories) { $category in
+                            VStack(spacing: 0) {
+                                // Заголовок категории
+                                Button(action: {
+                                    withAnimation {
+                                        category.isExpanded.toggle()
+                                    }
+                                }) {
+                                    HStack {
+                                        Text(category.title)
+                                            .font(.title3)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.white)
+                                        
+                                        Spacer()
+                                        
+                                        Image(systemName: category.isExpanded ? "chevron.up" : "chevron.down")
+                                            .foregroundColor(.white)
+                                            .font(.system(size: 16, weight: .medium))
+                                    }
+                                    .padding()
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 15)
+                                            .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                    )
+                                }
+                                
+                                // Выпадающий список видов спорта
+                                if category.isExpanded {
+                                    VStack(spacing: 1) {
+                                        ForEach(category.sports) { sport in
+                                            NavigationLink(destination: sport.name == "Мячик судьбы" ? AnyView(BallGameView()) : AnyView(EmptyBonusView())) {
+                                                HStack {
+                                                    Text(sport.icon)
+                                                        .font(.title3)
+                                                    Text(sport.name)
+                                                        .foregroundColor(.white)
+                                                    Spacer()
+                                                    Image(systemName: "chevron.right")
+                                                        .foregroundColor(.gray)
+                                                        .font(.system(size: 14))
+                                                }
+                                                .padding()
+                                                .background(Color(red: 0.15, green: 0.15, blue: 0.25))
+                                            }
+                                        }
+                                    }
+                                    .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: 15))
+                                    .padding(.top, 1)
+                                }
+                            }
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+    }
+}
+
+struct GameBlock: View {
+    let game: String
+    let team1: String
+    let team2: String
+    let odds: (String, String, String)
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(game)
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            VStack(alignment: .leading, spacing: 5) {
+                Text(team1)
+                    .foregroundColor(.white)
+                Text(team2)
+                    .foregroundColor(.white)
+            }
+            
+            HStack(spacing: 10) {
+                ForEach([odds.0, odds.1, odds.2], id: \.self) { odd in
+                    Button(action: {}) {
+                        Text(odd)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.blue.opacity(0.3))
+                            )
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 15)
+                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+        )
+    }
+}
+
+struct FooterButton: View {
+    let icon: String
+    let title: String
+    let isSelected: Bool
+    
+    var body: some View {
+        VStack {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+            Text(title)
+                .font(.system(size: 12))
+        }
+        .foregroundColor(isSelected ? .blue : .gray)
+    }
+}
+
+struct ProfileView: View {
+    @EnvironmentObject var userData: UserData
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            if let profile = userData.profile {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        Text("\(profile.firstName) \(profile.lastName)")
+                            .font(.title)
+                            .foregroundColor(.white)
+                        
+                        VStack(spacing: 15) {
+                            ProfileInfoRow(title: "Email", value: profile.email)
+                            ProfileInfoRow(title: "Телефон", value: profile.phone)
+                            ProfileInfoRow(title: "Город", value: profile.city)
+                            ProfileInfoRow(title: "Логин", value: profile.credentials.login)
+                            ProfileInfoRow(title: "Пароль", value: profile.credentials.password)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 15)
+                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                        )
+                        .padding(.horizontal)
+                    }
+                    .padding(.vertical)
+                }
+            } else {
+                Text("Профиль не найден")
+                    .foregroundColor(.white)
+            }
+        }
+    }
+}
+
+struct ProfileInfoRow: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.gray)
+            Spacer()
+            Text(value)
+                .foregroundColor(.white)
+        }
+    }
+}
+
+struct BetSlipView: View {
+    @State private var selectedOption = 0
+    @State private var numberOfCoupons: Double = 1
+    @State private var partialAmount: Double = 100
+    @State private var promoCode = ""
+    @State private var showPromoCodeAlert = false
+    @State private var promoCodeMessage = ""
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                // Сегментированный контроль для выбора действия
+                Picker("Опции", selection: $selectedOption) {
+                    Text("Купить").tag(0)
+                    Text("Продать").tag(1)
+                    Text("Продать частично").tag(2)
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+                .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Поле для промокода
+                        VStack(spacing: 15) {
+                            Text("Промокод")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            
+                            HStack {
+                                TextField("Введите промокод", text: $promoCode)
+                                    .textFieldStyle(CustomTextFieldStyle())
+                                    .autocapitalization(.none)
+                                
+                                Button(action: {
+                                    // Здесь будет логика проверки промокода
+                                    promoCodeMessage = "Промокод успешно применен"
+                                    showPromoCodeAlert = true
+                                }) {
+                                    Text("Проверить")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                        .frame(width: 100, height: 44)
+                                        .background(Color.blue.opacity(0.8))
+                                        .cornerRadius(10)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 15)
+                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                        )
+                        .padding(.horizontal)
+                        
+                        // Блок с действиями
+                        VStack(spacing: 15) {
+                            if selectedOption == 0 {
+                                // Купить купон
+                                BetSlipActionBlock(
+                                    title: "Купить купон",
+                                    value: $numberOfCoupons,
+                                    range: 1...10,
+                                    step: 1,
+                                    format: "%.0f купонов",
+                                    actionTitle: "Купить",
+                                    actionColor: .green
+                                )
+                            } else if selectedOption == 1 {
+                                // Продать купон
+                                BetSlipActionBlock(
+                                    title: "Продать купон",
+                                    value: $numberOfCoupons,
+                                    range: 1...10,
+                                    step: 1,
+                                    format: "%.0f купонов",
+                                    actionTitle: "Продать",
+                                    actionColor: .red
+                                )
+                            } else {
+                                // Продать частично
+                                BetSlipActionBlock(
+                                    title: "Продать частично",
+                                    value: $partialAmount,
+                                    range: 100...1000,
+                                    step: 100,
+                                    format: "%.0f €",
+                                    actionTitle: "Продать частично",
+                                    actionColor: .orange
+                                )
+                            }
+                        }
+                        .padding()
+                        .background(
+                            RoundedRectangle(cornerRadius: 15)
+                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                        )
+                        .padding(.horizontal)
+                    }
+                }
+            }
+        }
+        .alert("Промокод", isPresented: $showPromoCodeAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(promoCodeMessage)
+        }
+    }
+}
+
+struct BetSlipActionBlock: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let format: String
+    let actionTitle: String
+    let actionColor: Color
+    
+    var body: some View {
+        VStack(spacing: 15) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            // Слайдер
+            VStack {
+                Slider(value: $value, in: range, step: step)
+                    .accentColor(actionColor)
+                Text(String(format: format, value))
+                    .foregroundColor(.white)
+            }
+            
+            // Кнопки действий
+            HStack(spacing: 15) {
+                // Кнопка действия (Купить/Продать)
+                Button(action: {
+                    // Действие при нажатии
+                }) {
+                    Text(actionTitle)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(actionColor.opacity(0.8))
+                        .cornerRadius(10)
+                }
+                
+                // Кнопка отмены
+                Button(action: {
+                    // Действие при отмене
+                }) {
+                    Text("Отмена")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color.gray.opacity(0.8))
+                        .cornerRadius(10)
+                }
+            }
+        }
+    }
+}
+
+struct SettingsView: View {
+    @EnvironmentObject var userData: UserData
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            VStack {
+                Text("Настройки")
+                    .foregroundColor(.white)
+                
+                Button(action: {
+                    userData.isLoggedIn = false
+                }) {
+                    Text("Выйти")
+                        .font(.title3)
+                        .bold()
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            RoundedRectangle(cornerRadius: 25)
+                                .fill(Color.red.opacity(0.8))
+                        )
+                        .padding(.horizontal)
+                }
+                .padding(.top, 20)
+            }
+        }
+    }
+}
+
+struct GameView: View {
+    @State private var selectedTab = 2
+    
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            ProfileView()
+                .tabItem {
+                    FooterButton(icon: "person.fill", title: "Профиль", isSelected: selectedTab == 0)
+                }
+                .tag(0)
+            
+            CategoriesView()
+                .tabItem {
+                    FooterButton(icon: "line.3.horizontal", title: "Категории", isSelected: selectedTab == 1)
+                }
+                .tag(1)
+            
+            MainGameView()
+                .tabItem {
+                    FooterButton(icon: "house.fill", title: "Главная", isSelected: selectedTab == 2)
+                }
+                .tag(2)
+            
+            BetSlipView()
+                .tabItem {
+                    FooterButton(icon: "ticket.fill", title: "Купон", isSelected: selectedTab == 3)
+                }
+                .tag(3)
+            
+            SettingsView()
+                .tabItem {
+                    FooterButton(icon: "gearshape.fill", title: "Настройки", isSelected: selectedTab == 4)
+                }
+                .tag(4)
+        }
+        .accentColor(.blue)
+    }
+}
+
+struct CategorySquare: View {
+    let title: String
+    
+    var body: some View {
+        VStack {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 80)
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                )
+        }
+    }
+}
+
+struct BonusImageSlider: View {
+    @State private var currentIndex = 0
+    private let imageUrls = [
+        "https://i.ibb.co/zVFL3sb7/DALL-E-2025-02-08-22-07-05-A-wide-casino-bonus-gift-banner-The-image-features-a-glowing-gift-box-wra.webp",
+        "https://i.ibb.co/zVFL3sb7/DALL-E-2025-02-08-22-07-05-A-wide-casino-bonus-gift-banner-The-image-features-a-glowing-gift-box-wra.webp",
+        "https://i.ibb.co/Kc60ydzD/DALL-E-2025-02-08-22-07-58-A-wide-casino-bonus-gift-banner-in-a-luxurious-and-elegant-style-The-imag.webp"
+    ]
+    
+    var body: some View {
+        TabView(selection: $currentIndex) {
+            ForEach(0..<imageUrls.count, id: \.self) { index in
+                AsyncImage(url: URL(string: imageUrls[index])) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .clipped()
+                    case .failure(_):
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .overlay(
+                                Image(systemName: "photo")
+                                    .foregroundColor(.white)
+                            )
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            }
+        }
+        .tabViewStyle(PageTabViewStyle())
+        .frame(height: 200)
+    }
+}
+
+struct DetailedBonusView: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Верхнее изображение
+                    AsyncImage(url: URL(string: "https://i.ibb.co/cSkrTn0g/DALL-E-2025-02-08-22-11-30-A-luxury-Mercedes-Benz-car-wrapped-as-a-gift-The-car-is-adorned-with-a-la.webp")) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 200)
+                                .clipped()
+                        case .failure(_):
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 200)
+                                .overlay(
+                                    Image(systemName: "photo")
+                                        .foregroundColor(.white)
+                                )
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                    
+                    VStack(spacing: 15) {
+                        Text("Шанс на победу 🏎️")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        
+                        VStack(alignment: .leading, spacing: 20) {
+                            Text("🎯 Участвуйте в розыгрыше Mercedes-Benz C-Class!")
+                            Text("📅 Период акции: 1 марта - 31 мая 2025")
+                            Text("🎲 Как участвовать:")
+                        }
+                        .foregroundColor(.white)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("1️⃣ Делайте ставки от 100€")
+                            Text("2️⃣ Получайте 1 билет за каждые 100€ ставок")
+                            Text("3️⃣ Чем больше билетов - тем выше шанс на победу!")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("🎁 Дополнительные призы")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("🥈 2 место - iPhone 15 Pro Max")
+                            Text("🥉 3 место - MacBook Air")
+                            Text("4-10 места - AirPods Pro")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("⭐ Специальные условия")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("✨ VIP-игроки получают двойные билеты")
+                            Text("🎯 Экспресс ставки х3 билетов")
+                            Text("🔥 Каждые выходные: бонусные билеты")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("📋 Условия")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("✅ Минимальный коэффициент: 1.5")
+                            Text("✅ Розыгрыш: 1 июня 2025")
+                            Text("✅ Прямая трансляция в приложении")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("🏆 Не упустите свой шанс на Mercedes-Benz!")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                }
+            }
+        }
+        .navigationBarTitle("Шанс на победу", displayMode: .inline)
+    }
+}
+
+struct DotaBonusView: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            Text("Бонус Dota")
+                .foregroundColor(.white)
+        }
+        .navigationBarTitle("Бонус", displayMode: .inline)
+    }
+}
+
+struct SpendPointsView: View {
+    @State private var pointsToSpend: String = ""
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var promoCode = ""
+    @StateObject private var bonusManager = BonusManager.shared
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                // Баланс
+                VStack {
+                    Text("Бонусный счет")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                    Text("\(bonusManager.bonusBalance) 🎁")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                )
+                .padding(.horizontal)
+                
+                // Курс обмена
+                Text("15 баллов = 5 EUR промокод")
+                    .font(.title3)
+                    .foregroundColor(.white)
+                    .padding(.vertical, 10)
+                
+                // Поле ввода
+                TextField("Введите количество баллов", text: $pointsToSpend)
+                    .keyboardType(.numberPad)
+                    .textFieldStyle(CustomTextFieldStyle())
+                    .padding(.horizontal)
+                
+                // Кнопка получения промокода
+                Button(action: {
+                    if let points = Int(pointsToSpend), points > 0 {
+                        if points <= bonusManager.bonusBalance {
+                            if points % 15 == 0 {
+                                let promoValue = (points / 15) * 5
+                                promoCode = "PROMO\(Int.random(in: 10000...99999))"
+                                alertMessage = "Ваш промокод на \(promoValue) EUR:"
+                                bonusManager.bonusBalance -= points
+                                showAlert = true
+                            } else {
+                                alertMessage = "Количество баллов должно быть кратно 15"
+                                promoCode = ""
+                                showAlert = true
+                            }
+                        } else {
+                            alertMessage = "Недостаточно баллов"
+                            promoCode = ""
+                            showAlert = true
+                        }
+                    } else {
+                        alertMessage = "Введите корректное количество баллов"
+                        promoCode = ""
+                        showAlert = true
+                    }
+                }) {
+                    Text("Получить промокод")
+                        .font(.title3)
+                        .bold()
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(
+                            RoundedRectangle(cornerRadius: 25)
+                                .fill(Color.blue.opacity(0.8))
+                        )
+                }
+                .padding(.horizontal)
+            }
+        }
+        .navigationBarTitle("Обмен баллов", displayMode: .inline)
+        .alert(alertMessage, isPresented: $showAlert) {
+            if !promoCode.isEmpty {
+                Button(action: {
+                    UIPasteboard.general.string = promoCode
+                }) {
+                    Text("Скопировать")
+                }
+                Button("OK", role: .cancel) { }
+            } else {
+                Button("OK", role: .cancel) { }
+            }
+        } message: {
+            if !promoCode.isEmpty {
+                Text(promoCode)
+                    .font(.system(size: 20, weight: .bold))
+            }
+        }
+    }
+}
+
+struct TapBonusView: View {
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Верхнее изображение
+                    AsyncImage(url: URL(string: "https://i.ibb.co/CKS6ht5n/DALL-E-2025-02-08-23-29-42-A-wide-sports-betting-image-featuring-a-soccer-ball-with-a-betting-theme.webp")) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 200)
+                                .clipped()
+                        case .failure(_):
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(height: 200)
+                                .overlay(
+                                    Image(systemName: "photo")
+                                        .foregroundColor(.white)
+                                )
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                    
+                    VStack(spacing: 15) {
+                        Text("Мячик Судьбы ⚽🎁")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        
+                        VStack(alignment: .leading, spacing: 20) {
+                            Text("1️⃣ Открывай мини-игру в приложении (раздел \"Мячик Судьбы\").")
+                            Text("2️⃣ Тапай по мячу и зарабатывай баллы ⚽🔥.")
+                            Text("3️⃣ Обменивай баллы на награды в разделе бонусов.")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("🎁 Награды за баллы")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("🏆 1000 баллов – 5€ фрибет на спорт!")
+                            Text("🎯 2500 баллов – 15€ бонус на экспрессы!")
+                            Text("💰 5000 баллов – 30€ для live-ставок!")
+                            Text("🔮 10000 баллов – билет в розыгрыш 500€!")
+                            Text(" 25000 баллов – VIP-статус и кешбек 10% на ставки!")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("🔥 Дополнительные фишки")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("⚡ Бустеры – Выполняй челленджи и получай x2 к тапам!")
+                            Text("🎲 Случайные призы – в \"Мячике Судьбы\" может выпасть мгновенный бонус!")
+                            Text("🔥 Лидерборд – топ-10 игроков получат 100€ фрибет в конце акции!")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("📅 Сроки акции: 1 марта – 31 марта")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        Text("✅ Почему стоит участвовать?")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                        
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("✔️ Играй бесплатно и зарабатывай бонусы 🎮💸")
+                            Text("✔️ Твои навыки в \"тапах\" решают судьбу выигрышей ⚡🏆")
+                            Text("✔️ Чем больше тапов – тем больше наград!")
+                        }
+                        .foregroundColor(.white)
+                        
+                        Text("⚽ Тапай, копи баллы и побеждай в \"Мячике Судьбы\"! 🔥💰")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.top)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    
+                    NavigationLink(destination: SpendPointsView()) {
+                        Text("Потратить баллы")
+                            .font(.title3)
+                            .bold()
+                            .foregroundColor(.white)
+                            .frame(width: 200, height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(Color.blue.opacity(0.8))
+                            )
+                    }
+                    .padding(.top, 20)
+                }
+            }
+            .navigationBarTitle("Мячик Судьбы", displayMode: .inline)
+        }
+    }
+}
+
+struct BonusView: View {
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    BonusImageSlider()
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Спорт бонусы")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal)
+                        
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 15) {
+                            NavigationLink(destination: DetailedBonusView()) {
+                                VStack {
+                                    AsyncImage(url: URL(string: "https://i.ibb.co/cSkrTn0g/DALL-E-2025-02-08-22-11-30-A-luxury-Mercedes-Benz-car-wrapped-as-a-gift-The-car-is-adorned-with-a-la.webp")) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 100, height: 100)
+                                                .clipShape(RoundedRectangle(cornerRadius: 15))
+                                        case .failure(_):
+                                            RoundedRectangle(cornerRadius: 15)
+                                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                                .frame(height: 100)
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    Text("шанс на победу")
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            
+                            NavigationLink(destination: TapBonusView()) {
+                                VStack {
+                                    AsyncImage(url: URL(string: "https://i.ibb.co/ksySvmBw/DALL-E-2025-02-08-23-27-47-A-realistic-and-detailed-image-of-a-soccer-ball-with-a-betting-theme-The.webp")) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 100, height: 100)
+                                                .clipShape(RoundedRectangle(cornerRadius: 15))
+                                        case .failure(_):
+                                            RoundedRectangle(cornerRadius: 15)
+                                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                                .frame(height: 100)
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    Text("Тапай бабки")
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            
+                            NavigationLink(destination: EmptyBonusView()) {
+                                RoundedRectangle(cornerRadius: 15)
+                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                    .frame(height: 100)
+                                    .overlay(
+                                        Image(systemName: "gift.fill")
+                                            .font(.system(size: 30))
+                                            .foregroundColor(.white)
+                                    )
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    
+                    // Казино бонусы
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Казино бонусы")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal)
+                        
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 15) {
+                            ForEach(0..<3) { _ in
+                                NavigationLink(destination: EmptyBonusView()) {
+                                    RoundedRectangle(cornerRadius: 15)
+                                        .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                        .frame(height: 100)
+                                        .overlay(
+                                            Image(systemName: "gift.fill")
+                                                .font(.system(size: 30))
+                                                .foregroundColor(.white)
+                                        )
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    
+                    // Кибер бонусы
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Кибер бонусы")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal)
+                        
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible())
+                        ], spacing: 15) {
+                            // Первый квадрат с киберспорт изображением
+                            NavigationLink(destination: DotaBonusView()) {
+                                VStack {
+                                    AsyncImage(url: URL(string: "https://i.ibb.co/rSMRkRc/DALL-E-2025-02-08-22-19-04-A-square-esports-bonus-gift-image-The-design-features-a-glowing-gift-box.webp")) { phase in
+                                        switch phase {
+                                        case .empty:
+                                            ProgressView()
+                                        case .success(let image):
+                                            image
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 100, height: 100)
+                                                .clipShape(RoundedRectangle(cornerRadius: 15))
+                                        case .failure(_):
+                                            RoundedRectangle(cornerRadius: 15)
+                                                .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                                .frame(height: 100)
+                                                .overlay(
+                                                    Image(systemName: "photo")
+                                                        .foregroundColor(.white)
+                                                )
+                                        @unknown default:
+                                            EmptyView()
+                                        }
+                                    }
+                                    Text("бот доты")
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            
+                            // Остальные два квадрата
+                            ForEach(0..<2) { _ in
+                                NavigationLink(destination: EmptyBonusView()) {
+                                    RoundedRectangle(cornerRadius: 15)
+                                    git remote add origin                   .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                                        .frame(height: 100)
+                                        .overlay(
+                                            Image(systemName: "gift.fill")
+                                                .font(.system(size: 30))
+                                                .foregroundColor(.white)
+                                        )
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+            }
+            .navigationBarTitle("Бонусы", displayMode: .inline)
+        }
+    }
+}
+
+struct EmptyBonusView: View {
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            Text("Бонус скоро появится")
+                .foregroundColor(.white)
+        }
+        .navigationBarTitle("Бонус", displayMode: .inline)
+    }
+}
+
+struct BallGameView: View {
+    @State private var tapCount = 0
+    @State private var smallBalls: [(id: UUID, offset: CGSize, opacity: Double)] = []
+    @State private var isAnimating = false
+    @State private var tapolkiBalance: Double = 1_000_000
+    @StateObject private var bonusManager = BonusManager.shared
+    @State private var isGameActive = false
+    @State private var timeRemaining = 15 // 15 seconds
+    @State private var cooldownRemaining = 0 // cooldown time in seconds
+    @State private var showEarnedBonusAlert = false
+    @State private var earnedBonus = 0
+    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    
+    var formattedTimeRemaining: String {
+        let minutes = timeRemaining / 60
+        let seconds = timeRemaining % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    var formattedCooldownRemaining: String {
+        let minutes = cooldownRemaining / 60
+        let seconds = cooldownRemaining % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            VStack {
+                // Баланс и бонусы
+                HStack(spacing: 15) {
+                    // Баланс тапалок
+                    VStack {
+                        Text("Баланс тапалок")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                        Text(String(format: "%.1f 🎯", tapolkiBalance))
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 15)
+                            .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                    )
+                    
+                    // Бонусный счет
+                    VStack {
+                        Text("Бонусный счет")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                        Text("\(bonusManager.bonusBalance) 🎁")
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 15)
+                            .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                    )
+                }
+                .padding(.horizontal)
+                .padding(.top, 20)
+                
+                // Timer display
+                VStack(spacing: 5) {
+                    if isGameActive {
+                        Text("Время игры: \(formattedTimeRemaining)")
+                            .font(.headline)
+                            .foregroundColor(.green)
+                    } else if cooldownRemaining > 0 {
+                        Text("Следующая игра через: \(formattedCooldownRemaining)")
+                            .font(.headline)
+                            .foregroundColor(.orange)
+                    } else {
+                        Button(action: {
+                            startGame()
+                        }) {
+                            Text("Начать игру")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(Color.blue.opacity(0.8))
+                                .cornerRadius(10)
+                        }
+                    }
+                }
+                .padding(.top, 10)
+                
+                Text("Нажатий: \(tapCount)")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                
+                Spacer()
+                
+                AsyncImage(url: URL(string: "https://i.ibb.co/93YXW4L7/soccer-ball-in-vintage-style-on-grey-background-clipart-vector-633042-wh860.png")) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 150, height: 150)
+                            .padding(-20)
+                            .clipShape(Circle())
+                            .onTapGesture {
+                                if isGameActive && tapolkiBalance >= 0.5 {
+                                    tapCount += 1
+                                    tapolkiBalance -= 0.5
+                                    withAnimation(.spring()) {
+                                        let newBall = (
+                                            id: UUID(),
+                                            offset: CGSize(width: 0, height: 0),
+                                            opacity: 1.0
+                                        )
+                                        smallBalls.append(newBall)
+                                        
+                                        withAnimation(.easeOut(duration: 0.5)) {
+                                            if let index = smallBalls.firstIndex(where: { $0.id == newBall.id }) {
+                                                let angle = Double.random(in: 0...(2 * .pi))
+                                                let mainBallRadius: CGFloat = 75
+                                                let smallBallRadius: CGFloat = 20
+                                                let startX = cos(angle) * (mainBallRadius + 2)
+                                                let startY = sin(angle) * (mainBallRadius + 2)
+                                                let distance: CGFloat = 150
+                                                let endX = cos(angle) * distance
+                                                let endY = sin(angle) * distance
+                                                
+                                                smallBalls[index].offset = CGSize(width: startX, height: startY)
+                                                
+                                                withAnimation(.easeOut(duration: 0.5)) {
+                                                    smallBalls[index].offset = CGSize(width: endX, height: endY)
+                                                }
+                                            }
+                                        }
+                                        
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                            withAnimation(.easeOut(duration: 1.0)) {
+                                                if let index = smallBalls.firstIndex(where: { $0.id == newBall.id }) {
+                                                    smallBalls[index].opacity = 0
+                                                }
+                                            }
+                                        }
+                                        
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                            smallBalls.removeAll(where: { $0.id == newBall.id })
+                                        }
+                                        
+                                        if smallBalls.count > 10 {
+                                            smallBalls.removeFirst()
+                                        }
+                                    }
+                                }
+                            }
+                    case .failure(_):
+                        Image(systemName: "photo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 150, height: 150)
+                            .foregroundColor(.white)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                .opacity(isGameActive ? 1.0 : 0.5)
+                
+                Spacer()
+            }
+            
+            ForEach(smallBalls, id: \.id) { ball in
+                AsyncImage(url: URL(string: "https://i.ibb.co/93YXW4L7/soccer-ball-in-vintage-style-on-grey-background-clipart-vector-633042-wh860.png")) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 40, height: 40)
+                            .padding(-5)
+                            .clipShape(Circle())
+                            .offset(ball.offset)
+                            .opacity(ball.opacity)
+                    default:
+                        Image(systemName: "photo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 40, height: 40)
+                            .foregroundColor(.white)
+                            .offset(ball.offset)
+                            .opacity(ball.opacity)
+                    }
+                }
+            }
+        }
+        .navigationBarTitle("Мячик судьбы", displayMode: .inline)
+        .alert("Игра завершена!", isPresented: $showEarnedBonusAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Вы заработали \(earnedBonus) бонусных очков! 🎉")
+        }
+        .onReceive(timer) { _ in
+            if isGameActive {
+                if timeRemaining > 0 {
+                    timeRemaining -= 1
+                } else {
+                    endGame()
+                }
+            } else if cooldownRemaining > 0 {
+                cooldownRemaining -= 1
+            }
+        }
+    }
+    
+    private func startGame() {
+        isGameActive = true
+        timeRemaining = 15 // 15 seconds
+        tapCount = 0
+        smallBalls.removeAll()
+    }
+    
+    private func endGame() {
+        isGameActive = false
+        cooldownRemaining = 1740 // 29 minutes (30 - 1 = 29)
+        earnedBonus = tapCount
+        bonusManager.bonusBalance += tapCount
+        showEarnedBonusAlert = true
+        tapCount = 0
+        smallBalls.removeAll()
+    }
+}
+
+struct MainGameView: View {
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color(red: 0.1, green: 0.1, blue: 0.2)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 20) {
+                        ImageSlider()
+                        
+                        HStack(spacing: 10) {
+                            CategorySquare(title: "Спорт")
+                            CategorySquare(title: "Казино")
+                            CategorySquare(title: "Games")
+                        }
+                        .padding(.horizontal)
+                        
+                        // Плашка бонусов
+                        NavigationLink(destination: BonusView()) {
+                            HStack {
+                                Text("Бонусы")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.white)
+                            }
+                            .padding()
+                            .background(
+                                RoundedRectangle(cornerRadius: 15)
+                                    .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                            )
+                            .padding(.horizontal)
+                        }
+                        
+                        VStack(spacing: 15) {
+                            GameBlock(
+                                game: "Футбол - Премьер Лига",
+                                team1: "Арсенал",
+                                team2: "Манчестер Сити",
+                                odds: ("1.85", "3.40", "2.10")
+                            )
+                            
+                            GameBlock(
+                                game: "Футбол - Ла Лига",
+                                team1: "Реал Мадрид",
+                                team2: "Барселона",
+                                odds: ("2.10", "3.20", "1.95")
+                            )
+                            
+                            GameBlock(
+                                game: "Футбол - Серия А",
+                                team1: "Интер",
+                                team2: "Милан",
+                                odds: ("1.75", "3.50", "2.30")
+                            )
+                            
+                            GameBlock(
+                                game: "Футбол - Бундеслига",
+                                team1: "Бавария",
+                                team2: "Боруссия Д",
+                                odds: ("1.65", "3.60", "2.40")
+                            )
+                            
+                            GameBlock(
+                                game: "Футбол - Лига 1",
+                                team1: "ПСЖ",
+                                team2: "Марсель",
+                                odds: ("1.55", "3.80", "2.50")
+                            )
+                        }
+                        .padding(.horizontal)
+                    }
+                    .padding(.bottom, 30)
+                }
+            }
+        }
+    }
+}
+
+struct LoginView: View {
+    @State private var login = ""
+    @State private var password = ""
+    @State private var showError = false
+    @EnvironmentObject var userData: UserData
+    
+    var body: some View {
+        ZStack {
+            Color(red: 0.1, green: 0.1, blue: 0.2)
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text("Вход")
+                        .font(.largeTitle)
+                        .foregroundColor(.white)
+                        .padding(.top, 30)
+                    
+                    VStack(spacing: 15) {
+                        TextField("Логин", text: $login)
+                            .textFieldStyle(CustomTextFieldStyle())
+                            .autocapitalization(.none)
+                        
+                        SecureField("Пароль", text: $password)
+                            .textFieldStyle(CustomTextFieldStyle())
+                    }
+                    .padding(.horizontal)
+                    
+                    Button(action: {
+                        if userData.validateCredentials(login: login, password: password) {
+                            userData.isLoggedIn = true
+                        } else {
+                            showError = true
+                        }
+                    }) {
+                        Text("Войти")
+                            .font(.title3)
+                            .bold()
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(Color.blue.opacity(0.8))
+                            )
+                    }
+                    
+                    Button(action: {}) {
+                        Text("Забыли пароль?")
+                            .foregroundColor(.blue)
+                            .padding(.top, 10)
+                    }
+                }
+                .padding(.bottom, 30)
+            }
+        }
+        .alert("Ошибка входа", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Неверный логин или пароль")
+        }
+    }
+}
+
+struct WelcomeView: View {
+    @EnvironmentObject var userData: UserData
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color(red: 0.1, green: 0.1, blue: 0.2)
+                    .ignoresSafeArea()
+                
+                VStack(spacing: 30) {
+                    Spacer()
+                    
+                    Image(systemName: "sportscourt.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.white)
+                    
+                    Text("Добро пожаловать в BetApp")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    Text("Делайте ставки и выигрывайте")
+                        .font(.title3)
+                        .foregroundColor(.gray)
+                    
+                    Spacer()
+                    
+                    NavigationLink(destination: LoginView().environmentObject(userData)) {
+                        Text("Войти")
+                            .font(.title3)
+                            .bold()
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                RoundedRectangle(cornerRadius: 25)
+                                    .fill(Color.blue.opacity(0.8))
+                            )
+                    }
+                    .padding(.horizontal, 30)
+                    .padding(.bottom, 50)
+                }
+            }
+        }
+    }
+}
+
+// Add this before struct ContentView
+class BonusManager: ObservableObject {
+    @Published var bonusBalance: Int {
+        didSet {
+            UserDefaults.standard.set(bonusBalance, forKey: "bonusBalance")
+        }
+    }
+    
+    static let shared = BonusManager()
+    
+    init() {
+        self.bonusBalance = UserDefaults.standard.integer(forKey: "bonusBalance")
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var userData = UserData()
+    
+    var body: some View {
+        Group {
+            if userData.isLoggedIn {
+                GameView()
+                    .environmentObject(userData)
+            } else {
+                WelcomeView()
+                    .environmentObject(userData)
+            }
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}
+
